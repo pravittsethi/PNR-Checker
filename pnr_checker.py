@@ -209,7 +209,18 @@ class PNRChecker:
             # Navigate to the website
             url = "https://www.indianrail.gov.in/enquiry/PNR/PnrEnquiry.html?locale=en"
             print(f"Navigating to {url}")
-            self.driver.get(url)
+            
+            # Try to navigate with retries for connection issues
+            for attempt in range(3):
+                try:
+                    self.driver.get(url)
+                    break
+                except Exception as e:
+                    if attempt < 2:
+                        print(f"Connection attempt {attempt + 1} failed, retrying...")
+                        time.sleep(5)
+                    else:
+                        raise Exception(f"Failed to connect after 3 attempts. The website may be blocking GitHub Actions IPs or is temporarily down. Error: {str(e)}")
             
             # Wait for page to load
             time.sleep(2)
