@@ -16,6 +16,8 @@ from PIL import Image
 import openai
 import os
 from dotenv import load_dotenv
+from email_notifier import EmailNotifier
+import json
 
 # Load environment variables from .env file
 load_dotenv()
@@ -349,19 +351,70 @@ def main():
         print("You can set it by running: $env:OPENAI_API_KEY='your-api-key-here'")
         return
     
-    # PNR number to check
-    pnr_number = "2244293725"
+    # Check if running in automation mode (send emails)
+    send_email = os.getenv('SEND_EMAIL', 'false').lower() == 'true'
+    
+    # Load PNR numbers from config or use default
+    config_file = 'config.json'
+    if os.path.exists(config_file):
+        with open(config_file, 'r') as f:
+            config = json.load(f)
+            pnr_numbers = config.get('pnr_numbers', ["2244293725"])
+    else:
+        pnr_numbers = ["2244293725"]
     
     # Create checker instance
     checker = PNRChecker(api_key)
     
-    # Check PNR status
-    result = checker.check_pnr(pnr_number)
+    # Create email notifier if needed
+    if send_email:
+        notifier = EmailNotifier()
     
-    if result:
-        print("\nPNR check completed successfully!")
-    else:
-        print("\nPNR check failed!")
+    # Check each PNR
+    for pnr_number in pnr_numbers:
+        print(f"\n{'='*80}")
+        print(f"Processing PNR: {pnr_number}")
+        print(f"{'='*80}")
+        
+        try:
+            # Check PNR status
+            result = checker.check_pnr(pnr_number)
+            
+            if result:
+                print("\n✅ PNR check completed successfully!")
+                
+                # Send email notification if enabled
+                if send_email:
+                    print("\nSending email notification...")
+                    email_sent = notifier.send_pnr_status(
+                        pnr_number,
+                        result.get('journey_details'),
+                        result.get('passenger_details')
+                    )
+                    if email_sent:
+                        print("✅ Email notification sent!")
+                    else:
+                        print("❌ Failed to send email notification")
+            else:
+                print("\n❌ PNR check failed!")
+                
+                # Send error notification if email is enabled
+                if send_email:
+                    notifier.send_error_notification(
+                        pnr_number,
+                        "Failed to retrieve PNR status. The system will retry on the next scheduled run."
+                    )
+        
+        except Exception as e:
+            print(f"\n❌ Error processing PNR {pnr_number}: {e}")
+            
+            # Send error notification if email is enabled
+            if send_email:
+                notifier.send_error_notification(pnr_number, str(e))
+    
+    print(f"\n{'='*80}")
+    print("All PNR checks completed!")
+    print(f"{'='*80}\n")
 
 
 if __name__ == "__main__":
