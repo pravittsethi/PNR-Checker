@@ -45,14 +45,38 @@ class PNRChecker:
             options.add_argument('--disable-dev-shm-usage')
             options.add_argument('--disable-gpu')
         
-        # Common options for both local and CI
+        # Common options for both local and CI - make browser look more legitimate
         options.add_argument('--disable-blink-features=AutomationControlled')
-        options.add_argument('--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36')
+        options.add_argument('--disable-infobars')
+        options.add_argument('--disable-extensions')
+        options.add_argument('--disable-popup-blocking')
+        options.add_argument('--disable-notifications')
+        options.add_argument('--start-maximized')
+        options.add_argument('--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36')
         options.add_argument('--window-size=1920,1080')
+        options.add_argument('--lang=en-US,en')
+        options.add_argument('--accept-lang=en-US,en')
+        
+        # Add preferences to make browser more realistic
+        prefs = {
+            "profile.default_content_setting_values.notifications": 2,
+            "credentials_enable_service": False,
+            "profile.password_manager_enabled": False
+        }
+        options.add_experimental_option("prefs", prefs)
+        options.add_experimental_option("excludeSwitches", ["enable-automation"])
+        options.add_experimental_option('useAutomationExtension', False)
         
         # Initialize driver
         service = Service(ChromeDriverManager().install())
         self.driver = webdriver.Chrome(service=service, options=options)
+        
+        # Execute CDP commands to further mask automation
+        self.driver.execute_cdp_cmd('Network.setUserAgentOverride', {
+            "userAgent": 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+        })
+        self.driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
+        
         self.wait = WebDriverWait(self.driver, 20)
         
     def solve_captcha_with_openai(self, image_base64):
@@ -210,17 +234,54 @@ class PNRChecker:
             url = "https://www.indianrail.gov.in/enquiry/PNR/PnrEnquiry.html?locale=en"
             print(f"Navigating to {url}")
             
+            # First, test basic connectivity
+            print("Testing network connectivity...")
+            try:
+                # Try to access a simple page first to verify network works
+                self.driver.get("https://www.google.com")
+                print("✓ Basic internet connectivity confirmed")
+                time.sleep(2)
+            except Exception as e:
+                print(f"✗ Basic connectivity test failed: {e}")
+                raise Exception("Network connectivity issue in GitHub Actions environment")
+            
             # Try to navigate with retries for connection issues
+            print(f"Attempting to access Indian Railways website...")
             for attempt in range(3):
                 try:
                     self.driver.get(url)
+                    print(f"✓ Successfully loaded the website (attempt {attempt + 1})")
                     break
                 except Exception as e:
+                    error_msg = str(e)
+                    print(f"✗ Connection attempt {attempt + 1} failed: {error_msg}")
+                    
                     if attempt < 2:
-                        print(f"Connection attempt {attempt + 1} failed, retrying...")
-                        time.sleep(5)
+                        wait_time = 5 * (attempt + 1)
+                        print(f"Waiting {wait_time} seconds before retry...")
+                        time.sleep(wait_time)
                     else:
-                        raise Exception(f"Failed to connect after 3 attempts. The website may be blocking GitHub Actions IPs or is temporarily down. Error: {str(e)}")
+                        # Take a screenshot for debugging
+                        try:
+                            self.driver.save_screenshot("connection_error.png")
+                            print("Screenshot saved as connection_error.png")
+                        except:
+                            pass
+                        
+                        # Provide detailed error message
+                        if "ERR_CONNECTION_REFUSED" in error_msg:
+                            raise Exception(
+                                "Connection refused by Indian Railways website. "
+                                "This typically means:\n"
+                                "1. The website is blocking GitHub Actions IP addresses (datacenter IPs)\n"
+                                "2. The website may have geographic restrictions (India-only access)\n"
+                                "3. The website's firewall is blocking automated requests\n"
+                                f"Original error: {error_msg}"
+                            )
+                        elif "ERR_NAME_NOT_RESOLVED" in error_msg:
+                            raise Exception(f"DNS resolution failed. The domain may be blocked. Error: {error_msg}")
+                        else:
+                            raise Exception(f"Failed to connect after 3 attempts. Error: {error_msg}")
             
             # Wait for page to load
             time.sleep(2)
