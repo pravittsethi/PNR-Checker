@@ -34,10 +34,21 @@ class PNRChecker:
     def setup_driver(self):
         """Setup Chrome WebDriver with appropriate options"""
         options = webdriver.ChromeOptions()
-        # Comment out headless mode for debugging
-        # options.add_argument('--headless')
+        
+        # Check if running in CI/GitHub Actions environment
+        is_ci = os.getenv('CI') == 'true' or os.getenv('GITHUB_ACTIONS') == 'true'
+        
+        if is_ci:
+            # Headless mode for CI/GitHub Actions
+            options.add_argument('--headless=new')
+            options.add_argument('--no-sandbox')
+            options.add_argument('--disable-dev-shm-usage')
+            options.add_argument('--disable-gpu')
+        
+        # Common options for both local and CI
         options.add_argument('--disable-blink-features=AutomationControlled')
         options.add_argument('--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36')
+        options.add_argument('--window-size=1920,1080')
         
         # Initialize driver
         service = Service(ChromeDriverManager().install())
